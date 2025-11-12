@@ -173,6 +173,20 @@ async function run() {
             }
         });
 
+        // Get events created by user
+        app.get('/users/me/events', verifyToken, async (req, res) => {
+            try {
+                const email = req.user.email;
+                console.log('Manage events request for email:', email);
+                const result = await eventsCollection.find({ creatorEmail: email }).sort({ eventDate: 1 }).toArray();
+                console.log('Manage events found:', result.length);
+                res.send(result);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
         //Join Routes
 
 
