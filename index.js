@@ -59,6 +59,8 @@ async function run() {
             res.send({ message: 'Social Events Server is running' });
         });
 
+        //Event Routes
+
         // Get all upcoming events
         app.get('/events', async (req, res) => {
             try {
@@ -120,6 +122,58 @@ async function run() {
                 res.status(500).send({ message: 'Server error' });
             }
         });
+
+        // Update event
+        app.put('/events/:id', verifyToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                const updates = req.body;
+
+                if (updates.eventDate) {
+                    const dateObj = new Date(updates.eventDate);
+                    if (isNaN(dateObj) || dateObj < new Date()) {
+                        return res.status(400).send({ message: 'Invalid eventDate' });
+                    }
+                    updates.eventDate = dateObj;
+                }
+
+                const query = { _id: new ObjectId(id), creatorEmail: req.user.email };
+                const result = await eventsCollection.updateOne(query, { $set: updates });
+
+                if (result.matchedCount === 0)
+                    return res.status(403).send({ message: 'Not authorized or event not found' });
+
+                res.send({ modifiedCount: result.modifiedCount });
+            } catch (err) {
+                console.error(err);
+                res.status(400).send({ message: 'Invalid id or payload' });
+            }
+        });
+
+        // Delete event
+        app.delete('/events/:id', verifyToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                const userEmail = req.user.email;
+                console.log('Delete request for event:', id, 'by user:', userEmail);
+                const query = { _id: new ObjectId(id), creatorEmail: userEmail };
+                const result = await eventsCollection.deleteOne(query);
+                console.log('Delete result:', result);
+
+                if (result.deletedCount === 0)
+                    return res.status(403).send({ message: 'Not authorized or event not found' });
+
+                // delete related joins
+                await joinsCollection.deleteMany({ eventId: new ObjectId(id) });
+
+                res.send({ deletedCount: result.deletedCount });
+            } catch (err) {
+                console.error(err);
+                res.status(400).send({ message: 'Invalid id' });
+            }
+        });
+
+        //Join Routes
 
 
     } catch (err) {
