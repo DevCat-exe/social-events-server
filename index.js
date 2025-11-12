@@ -89,6 +89,38 @@ async function run() {
             }
         });
 
+        // Create event (requires auth)
+        app.post('/events', verifyToken, async (req, res) => {
+            try {
+                const { title, description, eventType, thumbnail, location, eventDate } = req.body;
+                if (!title || !eventType || !location || !eventDate) {
+                    return res.status(400).send({ message: 'Missing required fields' });
+                }
+
+                const dateObj = new Date(eventDate);
+                if (isNaN(dateObj) || dateObj < new Date()) {
+                    return res.status(400).send({ message: 'Invalid or past date' });
+                }
+
+                const newEvent = {
+                    title,
+                    description: description || '',
+                    eventType,
+                    thumbnail: thumbnail || '',
+                    location,
+                    eventDate: dateObj,
+                    creatorEmail: req.user.email,
+                    createdAt: new Date()
+                };
+
+                const result = await eventsCollection.insertOne(newEvent);
+                res.send({ insertedId: result.insertedId });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
 
     } catch (err) {
         console.error('DB connection error:', err);
