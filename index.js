@@ -189,6 +189,32 @@ async function run() {
 
         //Join Routes
 
+        // Join event
+        app.post('/events/:id/join', verifyToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
+                if (!event) return res.status(404).send({ message: 'Event not found' });
+
+                const existing = await joinsCollection.findOne({
+                    eventId: event._id,
+                    userEmail: req.user.email
+                });
+                if (existing) return res.status(409).send({ message: 'Already joined' });
+
+                const joinDoc = {
+                    eventId: event._id,
+                    userEmail: req.user.email,
+                    joinedAt: new Date()
+                };
+                const result = await joinsCollection.insertOne(joinDoc);
+                res.send({ insertedId: result.insertedId });
+            } catch (err) {
+                console.error(err);
+                res.status(400).send({ message: 'Invalid id' });
+            }
+        });
+
 
     } catch (err) {
         console.error('DB connection error:', err);
