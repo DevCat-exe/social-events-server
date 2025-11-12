@@ -214,9 +214,41 @@ async function run() {
                 res.status(400).send({ message: 'Invalid id' });
             }
         });
+        // Get joined events for user
+        app.get('/users/me/joined', verifyToken, async (req, res) => {
+            try {
+                const email = req.user.email;
+                console.log('Joined events request for email:', email);
+                const pipeline = [
+                    { $match: { userEmail: email } },
+                    {
+                        $lookup: {
+                            from: 'events',
+                            localField: 'eventId',
+                            foreignField: '_id',
+                            as: 'event'
+                        }
+                    },
+                    { $unwind: '$event' },
+                    { $replaceRoot: { newRoot: { $mergeObjects: ['$event', { joinedAt: '$joinedAt' }] } } },
+                    { $sort: { eventDate: 1 } }
+                ];
 
-
+                const result = await joinsCollection.aggregate(pipeline).toArray();
+                console.log('Joined events found:', result.length);
+                res.send(result);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
     } catch (err) {
         console.error('DB connection error:', err);
     }
 }
+
+run().catch(console.dir);
+
+app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+});
