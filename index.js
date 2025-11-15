@@ -249,4 +249,7 @@ async function run() {
 
 run().catch(console.dir);
 
-module.exports = app;
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Social Events Server running on port ${port}`);
+});
+
