@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+require('dotenv').config({ path: '.env.local' });
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const admin = require('firebase-admin');
 
@@ -51,6 +51,7 @@ async function run() {
         const db = client.db('social-events');
         const eventsCollection = db.collection('events');
         const joinsCollection = db.collection('joins');
+        const usersCollection = db.collection('users');
 
         console.log('✅ Connected to MongoDB');
 
@@ -64,14 +65,69 @@ async function run() {
         // Get all upcoming events
         app.get('/events', async (req, res) => {
             try {
-                const { type, search } = req.query;
+                const { type, search, location, dateRange, sortBy, page = 1, limit = 9 } = req.query;
                 const today = new Date();
                 const query = { eventDate: { $gte: today } };
+
                 if (type) query.eventType = type;
                 if (search) query.title = { $regex: search, $options: 'i' };
+                if (location) query.location = { $regex: location, $options: 'i' };
 
-                const results = await eventsCollection.find(query).sort({ eventDate: 1 }).toArray();
-                res.send(results);
+                // Date range filter
+                if (dateRange) {
+                    const now = new Date();
+                    let endDate;
+                    switch (dateRange) {
+                        case 'thisWeek':
+                            endDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                            break;
+                        case 'thisMonth':
+                            endDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+                            break;
+                        case 'nextMonth':
+                            endDate = new Date(now.getFullYear(), now.getMonth() + 2, now.getDate());
+                            break;
+                        default:
+                            endDate = null;
+                    }
+                    if (endDate) {
+                        query.eventDate.$lte = endDate;
+                    }
+                }
+
+                let sortOption = { eventDate: 1 }; // Default: earliest first
+                if (sortBy) {
+                    switch (sortBy) {
+                        case 'newest':
+                            sortOption = { createdAt: -1 };
+                            break;
+                        case 'title':
+                            sortOption = { title: 1 };
+                            break;
+                        case 'date':
+                        default:
+                            sortOption = { eventDate: 1 };
+                            break;
+                    }
+                }
+
+                const skip = (parseInt(page) - 1) * parseInt(limit);
+                const totalEvents = await eventsCollection.countDocuments(query);
+                const totalPages = Math.ceil(totalEvents / parseInt(limit));
+
+                const results = await eventsCollection
+                    .find(query)
+                    .sort(sortOption)
+                    .skip(skip)
+                    .limit(parseInt(limit))
+                    .toArray();
+
+                res.send({
+                    events: results,
+                    totalPages,
+                    currentPage: parseInt(page),
+                    totalEvents
+                });
             } catch (err) {
                 console.error(err);
                 res.status(500).send({ message: 'Server error' });
@@ -237,6 +293,95 @@ async function run() {
                 const result = await joinsCollection.aggregate(pipeline).toArray();
                 console.log('Joined events found:', result.length);
                 res.send(result);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Register or update user
+        app.post('/users', verifyToken, async (req, res) => {
+            try {
+                const { email, name, picture } = req.user;
+                const userDoc = {
+                    displayName: name || '',
+                    photoURL: picture || '',
+                    lastLogin: new Date()
+                };
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    {
+                        $set: userDoc,
+                        $setOnInsert: {
+                            email,
+                            role: 'user',
+                            createdAt: new Date()
+                        }
+                    },
+                    { upsert: true }
+                );
+
+                res.send({ message: 'User registered/updated', result });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Get current user profile
+        app.get('/users/me', verifyToken, async (req, res) => {
+            try {
+                const email = req.user.email;
+                const user = await usersCollection.findOne({ email });
+                if (!user) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+                res.send(user);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Update current user profile
+        app.put('/users/me', verifyToken, async (req, res) => {
+            try {
+                const email = req.user.email;
+                const updates = req.body;
+
+                // Prevent updating sensitive fields
+                delete updates.email;
+                delete updates.createdAt;
+                delete updates.role; // Only admin can change role
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    { $set: { ...updates, lastLogin: new Date() } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+
+                res.send({ message: 'Profile updated successfully' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Get all users (admin only)
+        app.get('/users', verifyToken, async (req, res) => {
+            try {
+                const email = req.user.email;
+                const user = await usersCollection.findOne({ email });
+                if (!user || user.role !== 'admin') {
+                    return res.status(403).send({ message: 'Admin access required' });
+                }
+
+                const users = await usersCollection.find({}).toArray();
+                res.send(users);
             } catch (err) {
                 console.error(err);
                 res.status(500).send({ message: 'Server error' });
