@@ -134,6 +134,17 @@ async function run() {
             }
         });
 
+        // Get total events count
+        app.get('/events/count', async (req, res) => {
+            try {
+                const total = await eventsCollection.countDocuments({});
+                res.send({ total });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
         // Get one event
         app.get('/events/:id', async (req, res) => {
             try {
@@ -302,10 +313,11 @@ async function run() {
         // Register or update user
         app.post('/users', verifyToken, async (req, res) => {
             try {
-                const { email, name, picture } = req.user;
+                const { email, name, picture, uid } = req.user;
                 const userDoc = {
                     displayName: name || '',
                     photoURL: picture || '',
+                    firebaseUID: uid,
                     lastLogin: new Date()
                 };
 
@@ -371,7 +383,61 @@ async function run() {
             }
         });
 
-        // Get all users (admin only)
+        // Get user by email (public info)
+        app.get('/users/email/:email', async (req, res) => {
+            try {
+                const email = req.params.email;
+                const user = await usersCollection.findOne({ email }, { projection: { displayName: 1, photoURL: 1, email: 1 } });
+                if (!user) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+                res.send(user);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Update user role (admin only)
+        app.put('/users/:email/role', verifyToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+                const { role } = req.body;
+                const adminEmail = req.user.email;
+                const admin = await usersCollection.findOne({ email: adminEmail });
+                if (!admin || admin.role !== 'admin') {
+                    return res.status(403).send({ message: 'Admin access required' });
+                }
+                const result = await usersCollection.updateOne({ email }, { $set: { role } });
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+                res.send({ message: 'User role updated' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Delete user (admin only)
+        app.delete('/users/:email', verifyToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+                const adminEmail = req.user.email;
+                const admin = await usersCollection.findOne({ email: adminEmail });
+                if (!admin || admin.role !== 'admin') {
+                    return res.status(403).send({ message: 'Admin access required' });
+                }
+                const result = await usersCollection.deleteOne({ email });
+                if (result.deletedCount === 0) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+                res.send({ message: 'User deleted' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
         app.get('/users', verifyToken, async (req, res) => {
             try {
                 const email = req.user.email;
