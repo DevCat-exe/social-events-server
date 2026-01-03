@@ -161,7 +161,7 @@ async function run() {
         // Create event (requires auth)
         app.post('/events', verifyToken, async (req, res) => {
             try {
-                const { title, description, eventType, thumbnail, location, eventDate } = req.body;
+                const { title, description, eventType, thumbnail, images, location, eventDate } = req.body;
                 if (!title || !eventType || !location || !eventDate) {
                     return res.status(400).send({ message: 'Missing required fields' });
                 }
@@ -171,16 +171,31 @@ async function run() {
                     return res.status(400).send({ message: 'Invalid or past date' });
                 }
 
+                // Validate images field if present
+                let eventImages = [];
+                if (images && Array.isArray(images)) {
+                    eventImages = images.filter(img => img && img.trim() !== '');
+                    if (eventImages.length === 0 && !thumbnail) {
+                        return res.status(400).send({ message: 'At least one image is required' });
+                    }
+                } else if (!thumbnail) {
+                    return res.status(400).send({ message: 'At least one image is required' });
+                }
+
                 const newEvent = {
                     title,
                     description: description || '',
                     eventType,
                     thumbnail: thumbnail || '',
+                    images: eventImages.length > 0 ? eventImages : undefined,
                     location,
                     eventDate: dateObj,
                     creatorEmail: req.user.email,
                     createdAt: new Date()
                 };
+
+                // Remove undefined fields
+                Object.keys(newEvent).forEach(key => newEvent[key] === undefined && delete newEvent[key]);
 
                 const result = await eventsCollection.insertOne(newEvent);
                 res.send({ insertedId: result.insertedId });
@@ -202,6 +217,13 @@ async function run() {
                         return res.status(400).send({ message: 'Invalid eventDate' });
                     }
                     updates.eventDate = dateObj;
+                }
+
+                // Validate images field if present
+                if (updates.images !== undefined) {
+                    if (!Array.isArray(updates.images) || updates.images.length === 0) {
+                        return res.status(400).send({ message: 'Images must be a non-empty array' });
+                    }
                 }
 
                 const query = { _id: new ObjectId(id), creatorEmail: req.user.email };
