@@ -328,6 +328,7 @@ async function run() {
                         $setOnInsert: {
                             email,
                             role: 'user',
+                            isBlocked: false,
                             createdAt: new Date()
                         }
                     },
@@ -366,6 +367,7 @@ async function run() {
                 delete updates.email;
                 delete updates.createdAt;
                 delete updates.role; // Only admin can change role
+                delete updates.isBlocked; // Only admin can block
 
                 const result = await usersCollection.updateOne(
                     { email },
@@ -413,6 +415,33 @@ async function run() {
                     return res.status(404).send({ message: 'User not found' });
                 }
                 res.send({ message: 'User role updated' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: 'Server error' });
+            }
+        });
+
+        // Toggle user blocked status (admin only)
+        app.patch('/users/:email/block', verifyToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+                const { isBlocked } = req.body; // Expect boolean
+                const adminEmail = req.user.email;
+                const adminUser = await usersCollection.findOne({ email: adminEmail });
+                
+                if (!adminUser || adminUser.role !== 'admin') {
+                    return res.status(403).send({ message: 'Admin access required' });
+                }
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    { $set: { isBlocked: isBlocked } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+                res.send({ message: `User ${isBlocked ? 'blocked' : 'unblocked'} successfully` });
             } catch (err) {
                 console.error(err);
                 res.status(500).send({ message: 'Server error' });
